@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   ReactFlow,
@@ -21,15 +22,20 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Plus, RotateCcw, Save, Layout, Grid3X3, Send, Trash2 } from 'lucide-react';
+import { Plus, RotateCcw, Save, Layout, Grid3X3, Send, Trash2, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import TriggerNode from './nodes/TriggerNode';
 import ActionNode from './nodes/ActionNode';
 import RouterNode from './nodes/RouterNode';
 import NodeSelectionModal from './NodeSelectionModal';
 import EditNodeModal from './EditNodeModal';
+import ExistingNodeModal from './ExistingNodeModal';
 import { useToast } from '@/hooks/use-toast';
+import { automationService, AutomationData } from '@/services/automationService';
 
 // Custom Edge with Better Delete Options
 const CustomEdge = ({
@@ -55,10 +61,8 @@ const CustomEdge = ({
 
   const onEdgeClick = (event: React.MouseEvent) => {
     event.stopPropagation();
-    const confirmDelete = window.confirm('Delete this connection? You can reconnect nodes manually after deletion.');
-    if (confirmDelete) {
-      setEdges((edges) => edges.filter((edge) => edge.id !== id));
-    }
+    // Dispatch custom event for edge deletion options
+    window.dispatchEvent(new CustomEvent('edgeDeleteOptions', { detail: { edgeId: id } }));
   };
 
   return (
@@ -68,9 +72,9 @@ const CustomEdge = ({
         markerEnd={markerEnd} 
         style={{ 
           ...style, 
-          stroke: '#f59e0b', 
-          strokeWidth: 3,
-          filter: 'drop-shadow(0 2px 4px rgba(245, 158, 11, 0.3))'
+          stroke: '#3b82f6', 
+          strokeWidth: 2,
+          filter: 'drop-shadow(0 1px 2px rgba(59, 130, 246, 0.2))'
         }} 
       />
       <EdgeLabelRenderer>
@@ -83,7 +87,7 @@ const CustomEdge = ({
           <Button
             size="sm"
             variant="destructive"
-            className="h-7 w-7 p-0 rounded-full text-xs bg-red-500 hover:bg-red-600 shadow-lg"
+            className="h-6 w-6 p-0 rounded-full text-xs bg-red-500 hover:bg-red-600 shadow-md border-2 border-white"
             onClick={onEdgeClick}
           >
             <Trash2 className="h-3 w-3" />
@@ -104,55 +108,31 @@ const edgeTypes = {
   custom: CustomEdge,
 };
 
-export interface FlowData {
-  nodes: any[];
-  edges: any[];
-  metadata: {
-    layout: 'horizontal' | 'vertical';
-    created_at: string;
-    updated_at: string;
-  };
-  changes: {
-    added_nodes: string[];
-    deleted_nodes: string[];
-    added_edges: string[];
-    deleted_edges: string[];
-    insertions: any[];
-  };
-}
-
 const FlowBuilder = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [layout, setLayout] = useState<'horizontal' | 'vertical'>('horizontal');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isExistingNodeModalOpen, setIsExistingNodeModalOpen] = useState(false);
   const [editingNode, setEditingNode] = useState<any>(null);
   const [insertPosition, setInsertPosition] = useState<{ x: number; y: number } | null>(null);
   const [insertEdge, setInsertEdge] = useState<Edge | null>(null);
+  const [pendingEdgeId, setPendingEdgeId] = useState<string | null>(null);
+  const [currentAutomationId, setCurrentAutomationId] = useState<string>('');
+  const [automationName, setAutomationName] = useState<string>('');
+  const [savedAutomations, setSavedAutomations] = useState<AutomationData[]>([]);
   const { toast } = useToast();
-  
-  // State tracking for backend
-  const [flowData, setFlowData] = useState<FlowData>({
-    nodes: [],
-    edges: [],
-    metadata: {
-      layout: 'horizontal',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    changes: {
-      added_nodes: [],
-      deleted_nodes: [],
-      added_edges: [],
-      deleted_edges: [],
-      insertions: [],
-    },
-  });
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
 
-  // Custom event listeners for node actions
+  // Load saved automations on component mount
+  useEffect(() => {
+    const automations = automationService.getAllAutomations();
+    setSavedAutomations(automations);
+  }, []);
+
+  // Custom event listeners for node actions and edge deletion
   useEffect(() => {
     const handleEditNode = (event: any) => {
       const { id, data, type } = event.detail;
@@ -175,78 +155,46 @@ const FlowBuilder = () => {
       });
     };
 
+    const handleEdgeDeleteOptions = (event: any) => {
+      setPendingEdgeId(event.detail.edgeId);
+      
+      // Show confirmation dialog with options
+      const result = window.confirm(
+        'Choose an option:\n' +
+        'OK - Delete edge and connect to existing node\n' +
+        'Cancel - Delete edge only'
+      );
+      
+      if (result) {
+        // User wants to connect to existing node
+        setIsExistingNodeModalOpen(true);
+      } else {
+        // User wants to delete edge only
+        setEdges((eds) => eds.filter((edge) => edge.id !== event.detail.edgeId));
+        setPendingEdgeId(null);
+        toast({
+          title: "Edge Deleted",
+          description: "Connection has been removed.",
+        });
+      }
+    };
+
     window.addEventListener('editNode', handleEditNode);
     window.addEventListener('toggleNode', handleToggleNode);
+    window.addEventListener('edgeDeleteOptions', handleEdgeDeleteOptions);
 
     return () => {
       window.removeEventListener('editNode', handleEditNode);
       window.removeEventListener('toggleNode', handleToggleNode);
+      window.removeEventListener('edgeDeleteOptions', handleEdgeDeleteOptions);
     };
-  }, [setNodes, toast]);
-
-  // Track changes for backend compatibility
-  const trackNodeAddition = (nodeId: string) => {
-    setFlowData(prev => ({
-      ...prev,
-      changes: {
-        ...prev.changes,
-        added_nodes: [...prev.changes.added_nodes, nodeId],
-      },
-      metadata: {
-        ...prev.metadata,
-        updated_at: new Date().toISOString(),
-      },
-    }));
-  };
-
-  const trackNodeDeletion = (nodeId: string) => {
-    setFlowData(prev => ({
-      ...prev,
-      changes: {
-        ...prev.changes,
-        deleted_nodes: [...prev.changes.deleted_nodes, nodeId],
-      },
-      metadata: {
-        ...prev.metadata,
-        updated_at: new Date().toISOString(),
-      },
-    }));
-  };
-
-  const trackEdgeAddition = (edgeId: string) => {
-    setFlowData(prev => ({
-      ...prev,
-      changes: {
-        ...prev.changes,
-        added_edges: [...prev.changes.added_edges, edgeId],
-      },
-      metadata: {
-        ...prev.metadata,
-        updated_at: new Date().toISOString(),
-      },
-    }));
-  };
-
-  const trackEdgeDeletion = (edgeId: string) => {
-    setFlowData(prev => ({
-      ...prev,
-      changes: {
-        ...prev.changes,
-        deleted_edges: [...prev.changes.deleted_edges, edgeId],
-      },
-      metadata: {
-        ...prev.metadata,
-        updated_at: new Date().toISOString(),
-      },
-    }));
-  };
+  }, [setNodes, setEdges, toast]);
 
   const onConnect: OnConnect = useCallback(
     (params: Connection) => {
       const id = `edge-${Date.now()}`;
       const newEdge = { ...params, id, type: 'custom' };
       setEdges((eds) => addEdge(newEdge, eds));
-      trackEdgeAddition(id);
     },
     [setEdges]
   );
@@ -255,17 +203,9 @@ const FlowBuilder = () => {
     (changes) => {
       changes.forEach((change) => {
         if (change.type === 'remove') {
-          trackNodeDeletion(change.id);
-          // Remove connected edges
-          setEdges((eds) => {
-            const edgesToRemove = eds.filter(
-              (edge) => edge.source === change.id || edge.target === change.id
-            );
-            edgesToRemove.forEach((edge) => trackEdgeDeletion(edge.id));
-            return eds.filter(
-              (edge) => edge.source !== change.id && edge.target !== change.id
-            );
-          });
+          setEdges((eds) => 
+            eds.filter((edge) => edge.source !== change.id && edge.target !== change.id)
+          );
         }
       });
       onNodesChange(changes);
@@ -275,11 +215,6 @@ const FlowBuilder = () => {
 
   const onEdgesChangeHandler: OnEdgesChange = useCallback(
     (changes) => {
-      changes.forEach((change) => {
-        if (change.type === 'remove') {
-          trackEdgeDeletion(change.id);
-        }
-      });
       onEdgesChange(changes);
     },
     [onEdgesChange]
@@ -302,7 +237,6 @@ const FlowBuilder = () => {
     };
 
     setNodes((nds) => [...nds, newNode]);
-    trackNodeAddition(id);
 
     // Auto-connect to last node if nodes exist and no insertion mode
     if (!insertEdge && !insertPosition && nodes.length > 0) {
@@ -316,7 +250,6 @@ const FlowBuilder = () => {
           type: 'custom',
         };
         setEdges((eds) => [...eds, autoEdge]);
-        trackEdgeAddition(edgeId);
       }
     }
 
@@ -336,7 +269,6 @@ const FlowBuilder = () => {
   const handleNodeInsertion = (newNode: Node, originalEdge: Edge) => {
     // Remove the original edge
     setEdges((eds) => eds.filter((edge) => edge.id !== originalEdge.id));
-    trackEdgeDeletion(originalEdge.id);
 
     // Create two new edges
     const edge1Id = `edge-${Date.now()}-1`;
@@ -357,43 +289,54 @@ const FlowBuilder = () => {
     };
 
     setEdges((eds) => [...eds, edge1, edge2]);
-    trackEdgeAddition(edge1Id);
-    trackEdgeAddition(edge2Id);
+  };
 
-    // Track insertion for backend
-    setFlowData(prev => ({
-      ...prev,
-      changes: {
-        ...prev.changes,
-        insertions: [...prev.changes.insertions, {
-          node_id: newNode.id,
-          original_edge: originalEdge.id,
-          new_edges: [edge1Id, edge2Id],
-          timestamp: new Date().toISOString(),
-        }],
-      },
-    }));
+  const handleExistingNodeSelection = (nodeId: string) => {
+    if (pendingEdgeId) {
+      const oldEdge = edges.find(e => e.id === pendingEdgeId);
+      if (oldEdge) {
+        // Remove old edge
+        setEdges((eds) => eds.filter((edge) => edge.id !== pendingEdgeId));
+        
+        // Create new edge to selected node
+        const newEdgeId = `edge-${Date.now()}-reconnect`;
+        const newEdge = {
+          id: newEdgeId,
+          source: oldEdge.source,
+          target: nodeId,
+          type: 'custom',
+        };
+        
+        setEdges((eds) => [...eds, newEdge]);
+        
+        toast({
+          title: "Edge Reconnected",
+          description: "Connection has been redirected to the selected node.",
+        });
+      }
+    }
+    
+    setIsExistingNodeModalOpen(false);
+    setPendingEdgeId(null);
   };
 
   const toggleLayout = () => {
     const newLayout = layout === 'horizontal' ? 'vertical' : 'horizontal';
     setLayout(newLayout);
     
-    // Actually rearrange nodes based on layout
+    // Rearrange nodes based on layout
     setNodes((nds) =>
       nds.map((node, index) => {
         let newPosition;
         if (newLayout === 'horizontal') {
-          // Arrange nodes horizontally
           newPosition = {
-            x: index * 300 + 100,
-            y: 200 + (Math.random() - 0.5) * 100, // slight vertical variation
+            x: index * 280 + 100,
+            y: 200 + (Math.random() - 0.5) * 80,
           };
         } else {
-          // Arrange nodes vertically
           newPosition = {
-            x: 200 + (Math.random() - 0.5) * 100, // slight horizontal variation
-            y: index * 200 + 100,
+            x: 250 + (Math.random() - 0.5) * 80,
+            y: index * 180 + 100,
           };
         }
         
@@ -406,15 +349,6 @@ const FlowBuilder = () => {
       })
     );
 
-    setFlowData(prev => ({
-      ...prev,
-      metadata: {
-        ...prev.metadata,
-        layout: newLayout,
-        updated_at: new Date().toISOString(),
-      },
-    }));
-
     toast({
       title: "Layout Changed",
       description: `Flow layout changed to ${newLayout} with nodes repositioned.`,
@@ -422,8 +356,18 @@ const FlowBuilder = () => {
   };
 
   const saveFlow = () => {
-    const finalFlowData = {
-      ...flowData,
+    if (!automationName.trim()) {
+      toast({
+        title: "Name Required",
+        description: "Please enter a name for your automation.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const automationData: AutomationData = {
+      id: currentAutomationId || automationService.generateId(),
+      name: automationName,
       nodes: nodes.map(node => ({
         id: node.id,
         type: node.type,
@@ -437,22 +381,71 @@ const FlowBuilder = () => {
         type: edge.type,
       })),
       metadata: {
-        ...flowData.metadata,
+        layout,
+        created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+      },
+      changes: {
+        added_nodes: [],
+        deleted_nodes: [],
+        added_edges: [],
+        deleted_edges: [],
+        insertions: [],
       },
     };
 
-    console.log('Flow Data for Backend:', JSON.stringify(finalFlowData, null, 2));
+    automationService.saveAutomation(automationData);
+    setCurrentAutomationId(automationData.id);
+    setSavedAutomations(automationService.getAllAutomations());
     
     toast({
-      title: "Flow Saved",
-      description: "Automation flow has been saved successfully.",
+      title: "Automation Saved",
+      description: `"${automationName}" has been saved successfully.`,
+    });
+  };
+
+  const loadAutomation = (automationId: string) => {
+    const automation = automationService.getAutomation(automationId);
+    if (automation) {
+      setCurrentAutomationId(automation.id);
+      setAutomationName(automation.name);
+      setLayout(automation.metadata.layout);
+      
+      // Load nodes
+      const loadedNodes = automation.nodes.map(node => ({
+        ...node,
+        sourcePosition: automation.metadata.layout === 'horizontal' ? Position.Right : Position.Bottom,
+        targetPosition: automation.metadata.layout === 'horizontal' ? Position.Left : Position.Top,
+      }));
+      setNodes(loadedNodes);
+      
+      // Load edges
+      setEdges(automation.edges);
+      
+      toast({
+        title: "Automation Loaded",
+        description: `"${automation.name}" has been loaded successfully.`,
+      });
+    }
+  };
+
+  const newAutomation = () => {
+    setCurrentAutomationId('');
+    setAutomationName('');
+    setNodes([]);
+    setEdges([]);
+    setLayout('horizontal');
+    
+    toast({
+      title: "New Automation",
+      description: "Started a new automation flow.",
     });
   };
 
   const sendToBackend = async () => {
-    const finalFlowData = {
-      ...flowData,
+    const automationData = {
+      id: currentAutomationId,
+      name: automationName,
       nodes: nodes.map(node => ({
         id: node.id,
         type: node.type,
@@ -466,27 +459,34 @@ const FlowBuilder = () => {
         type: edge.type,
       })),
       metadata: {
-        ...flowData.metadata,
+        layout,
+        created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
     };
 
     try {
-      console.log('Sending to backend:', finalFlowData);
+      console.log('Sending to backend:', automationData);
       
-      // Simulate API response with processed data
       await new Promise(resolve => setTimeout(resolve, 1500));
       
       const mockResponse = {
         status: 'success',
-        message: 'Flow processed successfully',
-        processed_nodes: finalFlowData.nodes.length,
-        processed_edges: finalFlowData.edges.length,
-        execution_time: '0.25s',
-        flow_id: `flow_${Date.now()}`,
+        message: 'Automation processed successfully',
+        automation_id: automationData.id || `auto_${Date.now()}`,
+        processed_nodes: automationData.nodes.length,
+        processed_edges: automationData.edges.length,
+        execution_plan: automationData.nodes.map(node => ({
+          node_id: node.id,
+          type: node.type,
+          category: node.data?.category || 'default',
+          enabled: node.data?.enabled !== false,
+          estimated_execution_time: Math.random() * 1000 + 100,
+        })),
         validation: {
           errors: [],
-          warnings: nodes.filter(n => !n.data?.enabled).length > 0 ? ['Some nodes are disabled'] : []
+          warnings: nodes.filter(n => !n.data?.enabled).length > 0 ? 
+            [`${nodes.filter(n => !n.data?.enabled).length} nodes are disabled`] : []
         }
       };
       
@@ -494,7 +494,7 @@ const FlowBuilder = () => {
       
       toast({
         title: "Backend Response Received",
-        description: `Flow processed: ${mockResponse.processed_nodes} nodes, ${mockResponse.processed_edges} edges. Check console for details.`,
+        description: `Automation processed: ${mockResponse.processed_nodes} nodes, ${mockResponse.processed_edges} edges.`,
       });
     } catch (error) {
       console.error('Backend Error:', error);
@@ -541,31 +541,67 @@ const FlowBuilder = () => {
   return (
     <div className="h-screen bg-white flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-orange-200 p-4 flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <Grid3X3 className="h-6 w-6 text-orange-600" />
-          <h1 className="text-xl font-semibold text-gray-900">Automation Flow Builder</h1>
+      <div className="bg-white border-b border-blue-200 p-4 flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <Grid3X3 className="h-6 w-6 text-blue-600" />
+            <h1 className="text-xl font-semibold text-blue-900">Automation Flow Builder</h1>
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            <Label htmlFor="automation-name" className="text-blue-700">Name:</Label>
+            <Input
+              id="automation-name"
+              value={automationName}
+              onChange={(e) => setAutomationName(e.target.value)}
+              placeholder="Enter automation name"
+              className="w-48 border-blue-200 focus:border-blue-400"
+            />
+          </div>
         </div>
         
         <div className="flex items-center space-x-2">
           <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
-            {activeTriggers} Active Triggers
+            {activeTriggers} Triggers
           </Badge>
           <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50">
-            {activeActions} Active Actions
+            {activeActions} Actions
           </Badge>
-          <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50">
-            {activeRouters} Active Routers
+          <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50">
+            {activeRouters} Routers
           </Badge>
         </div>
       </div>
 
       {/* Toolbar */}
-      <div className="bg-orange-50 border-b border-orange-200 p-3 flex items-center justify-between">
+      <div className="bg-blue-50 border-b border-blue-200 p-3 flex items-center justify-between">
         <div className="flex items-center space-x-2">
           <Button
+            onClick={newAutomation}
+            variant="outline"
+            size="sm"
+            className="border-blue-200 text-blue-600 hover:bg-blue-100"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            New
+          </Button>
+          
+          <Select value={currentAutomationId} onValueChange={loadAutomation}>
+            <SelectTrigger className="w-48 border-blue-200">
+              <SelectValue placeholder="Load automation..." />
+            </SelectTrigger>
+            <SelectContent className="bg-white border-blue-200">
+              {savedAutomations.map((automation) => (
+                <SelectItem key={automation.id} value={automation.id}>
+                  {automation.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          
+          <Button
             onClick={() => setIsModalOpen(true)}
-            className="bg-orange-600 hover:bg-orange-700 text-white"
+            className="bg-blue-600 hover:bg-blue-700 text-white"
             size="sm"
           >
             <Plus className="h-4 w-4 mr-2" />
@@ -576,10 +612,10 @@ const FlowBuilder = () => {
             onClick={toggleLayout}
             variant="outline"
             size="sm"
-            className="border-orange-200 text-orange-600 hover:bg-orange-50"
+            className="border-blue-200 text-blue-600 hover:bg-blue-100"
           >
             <Layout className="h-4 w-4 mr-2" />
-            {layout === 'horizontal' ? 'Switch to Vertical' : 'Switch to Horizontal'}
+            {layout === 'horizontal' ? 'Vertical' : 'Horizontal'}
           </Button>
         </div>
 
@@ -597,36 +633,22 @@ const FlowBuilder = () => {
             onClick={() => {
               setNodes([]);
               setEdges([]);
-              setFlowData(prev => ({
-                ...prev,
-                changes: {
-                  added_nodes: [],
-                  deleted_nodes: [...prev.changes.deleted_nodes, ...nodes.map(n => n.id)],
-                  added_edges: [],
-                  deleted_edges: [...prev.changes.deleted_edges, ...edges.map(e => e.id)],
-                  insertions: [],
-                },
-                metadata: {
-                  ...prev.metadata,
-                  updated_at: new Date().toISOString(),
-                },
-              }));
             }}
             variant="outline"
             size="sm"
-            className="border-orange-200 text-orange-600 hover:bg-orange-50"
+            className="border-blue-200 text-blue-600 hover:bg-blue-100"
           >
             <RotateCcw className="h-4 w-4 mr-2" />
-            Clear All
+            Clear
           </Button>
           
           <Button
             onClick={saveFlow}
-            className="bg-orange-600 hover:bg-orange-700 text-white"
+            className="bg-blue-600 hover:bg-blue-700 text-white"
             size="sm"
           >
             <Save className="h-4 w-4 mr-2" />
-            Save Flow
+            Save
           </Button>
         </div>
       </div>
@@ -644,23 +666,23 @@ const FlowBuilder = () => {
           edgeTypes={edgeTypes}
           connectionMode={ConnectionMode.Loose}
           fitView
-          className="bg-orange-50"
+          className="bg-blue-50"
         >
           <Controls 
-            className="bg-white border border-orange-200 rounded-lg shadow-sm"
+            className="bg-white border border-blue-200 rounded-lg shadow-sm"
             showInteractive={false}
           />
           <Background 
-            color="#fed7aa" 
+            color="#bfdbfe" 
             gap={20} 
             size={1}
-            className="opacity-50"
+            className="opacity-30"
           />
         </ReactFlow>
       </div>
 
-      {/* Node Selection Modal */}
-      <NodeSelectionModal
+      {/* Modals */}
+      <NodeSel-ectionModal
         isOpen={isModalOpen}
         onClose={() => {
           setIsModalOpen(false);
@@ -674,7 +696,6 @@ const FlowBuilder = () => {
         insertMode={!!insertEdge}
       />
 
-      {/* Edit Node Modal */}
       <EditNodeModal
         isOpen={isEditModalOpen}
         onClose={() => {
@@ -684,6 +705,16 @@ const FlowBuilder = () => {
         onSave={handleEditNodeSave}
         nodeData={editingNode?.data}
         nodeType={editingNode?.type}
+      />
+
+      <ExistingNodeModal
+        isOpen={isExistingNodeModalOpen}
+        onClose={() => {
+          setIsExistingNodeModalOpen(false);
+          setPendingEdgeId(null);
+        }}
+        onSelectNode={handleExistingNodeSelection}
+        nodes={nodes}
       />
     </div>
   );
