@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   ReactFlow,
@@ -682,7 +681,7 @@ const FlowBuilder = () => {
       </div>
 
       {/* Modals */}
-      <NodeSel-ectionModal
+      <NodeSelectionModal
         isOpen={isModalOpen}
         onClose={() => {
           setIsModalOpen(false);
