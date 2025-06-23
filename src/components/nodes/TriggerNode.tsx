@@ -1,8 +1,8 @@
 
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps } from '@xyflow/react';
-import { Zap, Mail, Clock, MousePointer, Edit3 } from 'lucide-react';
-import { Card } from '@/components/ui/card';
+import { Zap, Mail, Clock, MousePointer, Edit3, Trash2 } from 'lucide-react';
+import { Card } from '@/components/ui/car
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -59,8 +59,12 @@ const TriggerNode = memo(({ data, sourcePosition, id }: NodeProps) => {
     window.dispatchEvent(new CustomEvent('toggleNode', { detail: { id, enabled: checked } }));
   };
 
+  const handleDelete = () => {
+    window.dispatchEvent(new CustomEvent('deleteNode', { detail: { id } }));
+  };
+
   return (
-    <Card className={`min-w-[200px] ${enabled ? 'bg-white border-2 border-blue-300 shadow-md' : 'bg-gray-50 border-2 border-gray-300 opacity-70 shadow-sm'} hover:shadow-lg transition-all duration-200`}>
+    <Card className={`min-w-[200px] ${enabled ? 'bg-white border-2 border-blue-300 shadow-md' : 'bg-white border-2 border-gray-300 opacity-70 shadow-sm'} hover:shadow-lg transition-all duration-200`}>
       <div className="p-4">
         <div className="flex items-center justify-between mb-2">
           <div className={`flex items-center space-x-2 ${enabled ? 'text-blue-700' : 'text-gray-500'}`}>
@@ -78,6 +82,14 @@ const TriggerNode = memo(({ data, sourcePosition, id }: NodeProps) => {
               onClick={handleEdit}
             >
               <Edit3 className="h-3 w-3" />
+            </Button>
+            <Button 
+              size="sm" 
+              variant="ghost" 
+              className="h-6 w-6 p-0 hover:bg-red-100 text-red-500" 
+              onClick={handleDelete}
+            >
+              <Trash2 className="h-3 w-3" />
             </Button>
           </div>
         </div>

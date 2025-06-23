@@ -8,6 +8,7 @@ export interface AutomationData {
     layout: 'horizontal' | 'vertical';
     created_at: string;
     updated_at: string;
+    userPositions?: Record<string, { x: number; y: number }>;
   };
   changes: {
     added_nodes: string[];

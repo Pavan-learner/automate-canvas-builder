@@ -121,6 +121,7 @@ const FlowBuilder = () => {
   const [currentAutomationId, setCurrentAutomationId] = useState<string>('');
   const [automationName, setAutomationName] = useState<string>('');
   const [savedAutomations, setSavedAutomations] = useState<AutomationData[]>([]);
+  const [userPositions, setUserPositions] = useState<Map<string, { x: number; y: number }>>(new Map());
   const { toast } = useToast();
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -154,6 +155,18 @@ const FlowBuilder = () => {
       });
     };
 
+    const handleDeleteNode = (event: any) => {
+      const { id } = event.detail;
+      if (window.confirm('Are you sure you want to delete this node?')) {
+        setNodes((nds) => nds.filter(node => node.id !== id));
+        setEdges((eds) => eds.filter(edge => edge.source !== id && edge.target !== id));
+        toast({
+          title: "Node Deleted",
+          description: "Node and its connections have been removed.",
+        });
+      }
+    };
+
     const handleEdgeDeleteOptions = (event: any) => {
       setPendingEdgeId(event.detail.edgeId);
       
@@ -180,11 +193,13 @@ const FlowBuilder = () => {
 
     window.addEventListener('editNode', handleEditNode);
     window.addEventListener('toggleNode', handleToggleNode);
+    window.addEventListener('deleteNode', handleDeleteNode);
     window.addEventListener('edgeDeleteOptions', handleEdgeDeleteOptions);
 
     return () => {
       window.removeEventListener('editNode', handleEditNode);
       window.removeEventListener('toggleNode', handleToggleNode);
+      window.removeEventListener('deleteNode', handleDeleteNode);
       window.removeEventListener('edgeDeleteOptions', handleEdgeDeleteOptions);
     };
   }, [setNodes, setEdges, toast]);
@@ -200,11 +215,20 @@ const FlowBuilder = () => {
 
   const onNodesChangeHandler: OnNodesChange = useCallback(
     (changes) => {
+      // Store user positions when nodes are dragged
       changes.forEach((change) => {
+        if (change.type === 'position' && change.position && change.dragging === false) {
+          setUserPositions(prev => new Map(prev.set(change.id, change.position!)));
+        }
         if (change.type === 'remove') {
           setEdges((eds) => 
             eds.filter((edge) => edge.source !== change.id && edge.target !== change.id)
           );
+          setUserPositions(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(change.id);
+            return newMap;
+          });
         }
       });
       onNodesChange(changes);
@@ -219,12 +243,38 @@ const FlowBuilder = () => {
     [onEdgesChange]
   );
 
+  const calculateNodePosition = (nodeIndex: number, totalNodes: number, isInsertion: boolean = false) => {
+    if (layout === 'horizontal') {
+      return {
+        x: nodeIndex * 300 + 100,
+        y: 200 + (Math.random() - 0.5) * 60,
+      };
+    } else {
+      return {
+        x: 300 + (Math.random() - 0.5) * 60,
+        y: nodeIndex * 200 + 100,
+      };
+    }
+  };
+
   const addNode = (nodeData: any, position?: { x: number; y: number }) => {
     const id = `${nodeData.type}-${Date.now()}`;
+    
+    let nodePosition;
+    if (position) {
+      nodePosition = position;
+    } else if (insertEdge && insertPosition) {
+      nodePosition = insertPosition;
+    } else {
+      // Calculate position based on existing nodes and layout
+      const nodeIndex = nodes.length;
+      nodePosition = calculateNodePosition(nodeIndex, nodes.length + 1);
+    }
+
     const newNode: Node = {
       id,
       type: nodeData.type,
-      position: position || { x: Math.random() * 400, y: Math.random() * 400 },
+      position: nodePosition,
       data: {
         label: nodeData.label,
         category: nodeData.category,
@@ -236,6 +286,7 @@ const FlowBuilder = () => {
     };
 
     setNodes((nds) => [...nds, newNode]);
+    setUserPositions(prev => new Map(prev.set(id, nodePosition)));
 
     // Auto-connect to last node if nodes exist and no insertion mode
     if (!insertEdge && !insertPosition && nodes.length > 0) {
@@ -323,20 +374,28 @@ const FlowBuilder = () => {
     const newLayout = layout === 'horizontal' ? 'vertical' : 'horizontal';
     setLayout(newLayout);
     
-    // Rearrange nodes based on layout
+    // Preserve user positions where possible, otherwise recalculate
     setNodes((nds) =>
       nds.map((node, index) => {
+        const userPosition = userPositions.get(node.id);
         let newPosition;
-        if (newLayout === 'horizontal') {
-          newPosition = {
-            x: index * 280 + 100,
-            y: 200 + (Math.random() - 0.5) * 80,
-          };
+        
+        if (userPosition && userPosition.x !== 0 && userPosition.y !== 0) {
+          // Keep user's custom position but adjust for layout constraints
+          if (newLayout === 'horizontal') {
+            newPosition = {
+              x: userPosition.x,
+              y: Math.max(50, Math.min(userPosition.y, 400)),
+            };
+          } else {
+            newPosition = {
+              x: Math.max(50, Math.min(userPosition.x, 600)),
+              y: userPosition.y,
+            };
+          }
         } else {
-          newPosition = {
-            x: 250 + (Math.random() - 0.5) * 80,
-            y: index * 180 + 100,
-          };
+          // Calculate new position based on layout
+          newPosition = calculateNodePosition(index, nds.length);
         }
         
         return {
@@ -350,7 +409,7 @@ const FlowBuilder = () => {
 
     toast({
       title: "Layout Changed",
-      description: `Flow layout changed to ${newLayout} with nodes repositioned.`,
+      description: `Flow layout changed to ${newLayout} with positioning preserved.`,
     });
   };
 
@@ -383,6 +442,7 @@ const FlowBuilder = () => {
         layout,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        userPositions: Object.fromEntries(userPositions),
       },
       changes: {
         added_nodes: [],
@@ -410,6 +470,11 @@ const FlowBuilder = () => {
       setAutomationName(automation.name);
       setLayout(automation.metadata.layout);
       
+      // Load user positions if available
+      if (automation.metadata.userPositions) {
+        setUserPositions(new Map(Object.entries(automation.metadata.userPositions)));
+      }
+      
       // Load nodes
       const loadedNodes = automation.nodes.map(node => ({
         ...node,
@@ -434,6 +499,7 @@ const FlowBuilder = () => {
     setNodes([]);
     setEdges([]);
     setLayout('horizontal');
+    setUserPositions(new Map());
     
     toast({
       title: "New Automation",
@@ -632,6 +698,7 @@ const FlowBuilder = () => {
             onClick={() => {
               setNodes([]);
               setEdges([]);
+              setUserPositions(new Map());
             }}
             variant="outline"
             size="sm"
