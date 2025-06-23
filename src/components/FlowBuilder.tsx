@@ -15,22 +15,81 @@ import {
   OnEdgesChange,
   ConnectionMode,
   Position,
+  EdgeProps,
+  BaseEdge,
+  getBezierPath,
+  EdgeLabelRenderer,
+  useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Plus, RotateCcw, Save, Layout, Grid3X3 } from 'lucide-react';
+import { Plus, RotateCcw, Save, Layout, Grid3X3, Send, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import TriggerNode from './nodes/TriggerNode';
 import ActionNode from './nodes/ActionNode';
 import RouterNode from './nodes/RouterNode';
 import NodeSelectionModal from './NodeSelectionModal';
+import EditNodeModal from './EditNodeModal';
 import { useToast } from '@/hooks/use-toast';
+
+// Custom Edge with Delete Button
+const CustomEdge = ({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style = {},
+  markerEnd,
+}: EdgeProps) => {
+  const { setEdges } = useReactFlow();
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+
+  const onEdgeClick = () => {
+    setEdges((edges) => edges.filter((edge) => edge.id !== id));
+  };
+
+  return (
+    <>
+      <BaseEdge path={edgePath} markerEnd={markerEnd} style={{ ...style, stroke: '#3b82f6', strokeWidth: 2 }} />
+      <EdgeLabelRenderer>
+        <div
+          className="absolute pointer-events-all transform -translate-x-1/2 -translate-y-1/2"
+          style={{
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+          }}
+        >
+          <Button
+            size="sm"
+            variant="destructive"
+            className="h-6 w-6 p-0 rounded-full text-xs"
+            onClick={onEdgeClick}
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+};
 
 const nodeTypes = {
   trigger: TriggerNode,
   action: ActionNode,
   router: RouterNode,
+};
+
+const edgeTypes = {
+  custom: CustomEdge,
 };
 
 export interface FlowData {
@@ -55,6 +114,8 @@ const FlowBuilder = () => {
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [layout, setLayout] = useState<'horizontal' | 'vertical'>('horizontal');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingNode, setEditingNode] = useState<any>(null);
   const [insertPosition, setInsertPosition] = useState<{ x: number; y: number } | null>(null);
   const [insertEdge, setInsertEdge] = useState<Edge | null>(null);
   const { toast } = useToast();
@@ -78,6 +139,38 @@ const FlowBuilder = () => {
   });
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+
+  // Custom event listeners for node actions
+  useEffect(() => {
+    const handleEditNode = (event: any) => {
+      const { id, data, type } = event.detail;
+      setEditingNode({ id, data, type });
+      setIsEditModalOpen(true);
+    };
+
+    const handleToggleNode = (event: any) => {
+      const { id, enabled } = event.detail;
+      setNodes((nds) =>
+        nds.map((node) =>
+          node.id === id
+            ? { ...node, data: { ...node.data, enabled } }
+            : node
+        )
+      );
+      toast({
+        title: enabled ? "Node Enabled" : "Node Disabled",
+        description: `Node has been ${enabled ? 'enabled' : 'disabled'}.`,
+      });
+    };
+
+    window.addEventListener('editNode', handleEditNode);
+    window.addEventListener('toggleNode', handleToggleNode);
+
+    return () => {
+      window.removeEventListener('editNode', handleEditNode);
+      window.removeEventListener('toggleNode', handleToggleNode);
+    };
+  }, [setNodes, toast]);
 
   // Track changes for backend compatibility
   const trackNodeAddition = (nodeId: string) => {
@@ -139,7 +232,7 @@ const FlowBuilder = () => {
   const onConnect: OnConnect = useCallback(
     (params: Connection) => {
       const id = `edge-${Date.now()}`;
-      const newEdge = { ...params, id, type: 'smoothstep' };
+      const newEdge = { ...params, id, type: 'custom' };
       setEdges((eds) => addEdge(newEdge, eds));
       trackEdgeAddition(id);
     },
@@ -189,6 +282,7 @@ const FlowBuilder = () => {
       data: {
         label: nodeData.label,
         category: nodeData.category,
+        enabled: true,
         ...nodeData,
       },
       sourcePosition: layout === 'horizontal' ? Position.Right : Position.Bottom,
@@ -197,6 +291,22 @@ const FlowBuilder = () => {
 
     setNodes((nds) => [...nds, newNode]);
     trackNodeAddition(id);
+
+    // Auto-connect to last node if nodes exist and no insertion mode
+    if (!insertEdge && !insertPosition && nodes.length > 0) {
+      const lastNode = nodes[nodes.length - 1];
+      if (lastNode.type !== 'router' || nodeData.type === 'trigger') {
+        const edgeId = `edge-${Date.now()}-auto`;
+        const autoEdge = {
+          id: edgeId,
+          source: nodeData.type === 'trigger' ? id : lastNode.id,
+          target: nodeData.type === 'trigger' ? lastNode.id : id,
+          type: 'custom',
+        };
+        setEdges((eds) => [...eds, autoEdge]);
+        trackEdgeAddition(edgeId);
+      }
+    }
 
     // Handle insertion between nodes
     if (insertEdge && insertPosition) {
@@ -224,14 +334,14 @@ const FlowBuilder = () => {
       id: edge1Id,
       source: originalEdge.source,
       target: newNode.id,
-      type: 'smoothstep',
+      type: 'custom',
     };
     
     const edge2 = {
       id: edge2Id,
       source: newNode.id,
       target: originalEdge.target,
-      type: 'smoothstep',
+      type: 'custom',
     };
 
     setEdges((eds) => [...eds, edge1, edge2]);
@@ -310,6 +420,46 @@ const FlowBuilder = () => {
     });
   };
 
+  const sendToBackend = async () => {
+    const finalFlowData = {
+      ...flowData,
+      nodes: nodes.map(node => ({
+        id: node.id,
+        type: node.type,
+        position: node.position,
+        data: node.data,
+      })),
+      edges: edges.map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: edge.type,
+      })),
+      metadata: {
+        ...flowData.metadata,
+        updated_at: new Date().toISOString(),
+      },
+    };
+
+    try {
+      console.log('Sending to backend:', finalFlowData);
+      
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      toast({
+        title: "Backend Response",
+        description: "Flow data sent successfully! Check console for details.",
+      });
+    } catch (error) {
+      toast({
+        title: "Backend Error",
+        description: "Failed to send data to backend.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const onEdgeClick = (event: React.MouseEvent, edge: Edge) => {
     const rect = reactFlowWrapper.current?.getBoundingClientRect();
     if (rect) {
@@ -322,6 +472,26 @@ const FlowBuilder = () => {
     }
   };
 
+  const handleEditNodeSave = (updatedData: any) => {
+    setNodes((nds) =>
+      nds.map((node) =>
+        node.id === editingNode.id
+          ? { ...node, data: { ...node.data, ...updatedData } }
+          : node
+      )
+    );
+    toast({
+      title: "Node Updated",
+      description: "Node has been updated successfully.",
+    });
+  };
+
+  // Calculate active nodes
+  const activeNodes = nodes.filter(node => node.data?.enabled !== false);
+  const activeTriggers = activeNodes.filter(node => node.type === 'trigger').length;
+  const activeActions = activeNodes.filter(node => node.type === 'action').length;
+  const activeRouters = activeNodes.filter(node => node.type === 'router').length;
+
   return (
     <div className="h-screen bg-white flex flex-col">
       {/* Header */}
@@ -332,14 +502,14 @@ const FlowBuilder = () => {
         </div>
         
         <div className="flex items-center space-x-2">
-          <Badge variant="outline" className="text-blue-600 border-blue-200">
-            {nodes.filter(n => n.type === 'trigger').length} Triggers
+          <Badge variant="outline" className="text-green-600 border-green-200">
+            {activeTriggers} Active Triggers
           </Badge>
           <Badge variant="outline" className="text-blue-600 border-blue-200">
-            {nodes.filter(n => n.type === 'action').length} Actions
+            {activeActions} Active Actions
           </Badge>
-          <Badge variant="outline" className="text-blue-600 border-blue-200">
-            {nodes.filter(n => n.type === 'router').length} Routers
+          <Badge variant="outline" className="text-purple-600 border-purple-200">
+            {activeRouters} Active Routers
           </Badge>
         </div>
       </div>
@@ -368,6 +538,15 @@ const FlowBuilder = () => {
         </div>
 
         <div className="flex items-center space-x-2">
+          <Button
+            onClick={sendToBackend}
+            className="bg-green-600 hover:bg-green-700 text-white"
+            size="sm"
+          >
+            <Send className="h-4 w-4 mr-2" />
+            Send to Backend
+          </Button>
+          
           <Button
             onClick={() => {
               setNodes([]);
@@ -416,6 +595,7 @@ const FlowBuilder = () => {
           onConnect={onConnect}
           onEdgeClick={onEdgeClick}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           connectionMode={ConnectionMode.Loose}
           fitView
           className="bg-blue-50"
@@ -446,6 +626,18 @@ const FlowBuilder = () => {
           setIsModalOpen(false);
         }}
         insertMode={!!insertEdge}
+      />
+
+      {/* Edit Node Modal */}
+      <EditNodeModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingNode(null);
+        }}
+        onSave={handleEditNodeSave}
+        nodeData={editingNode?.data}
+        nodeType={editingNode?.type}
       />
     </div>
   );
