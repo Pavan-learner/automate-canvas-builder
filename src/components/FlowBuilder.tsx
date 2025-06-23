@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   ReactFlow,
@@ -32,7 +31,7 @@ import NodeSelectionModal from './NodeSelectionModal';
 import EditNodeModal from './EditNodeModal';
 import { useToast } from '@/hooks/use-toast';
 
-// Custom Edge with Delete Button
+// Custom Edge with Better Delete Options
 const CustomEdge = ({
   id,
   sourceX,
@@ -54,13 +53,26 @@ const CustomEdge = ({
     targetPosition,
   });
 
-  const onEdgeClick = () => {
-    setEdges((edges) => edges.filter((edge) => edge.id !== id));
+  const onEdgeClick = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    const confirmDelete = window.confirm('Delete this connection? You can reconnect nodes manually after deletion.');
+    if (confirmDelete) {
+      setEdges((edges) => edges.filter((edge) => edge.id !== id));
+    }
   };
 
   return (
     <>
-      <BaseEdge path={edgePath} markerEnd={markerEnd} style={{ ...style, stroke: '#3b82f6', strokeWidth: 2 }} />
+      <BaseEdge 
+        path={edgePath} 
+        markerEnd={markerEnd} 
+        style={{ 
+          ...style, 
+          stroke: '#f59e0b', 
+          strokeWidth: 3,
+          filter: 'drop-shadow(0 2px 4px rgba(245, 158, 11, 0.3))'
+        }} 
+      />
       <EdgeLabelRenderer>
         <div
           className="absolute pointer-events-all transform -translate-x-1/2 -translate-y-1/2"
@@ -71,7 +83,7 @@ const CustomEdge = ({
           <Button
             size="sm"
             variant="destructive"
-            className="h-6 w-6 p-0 rounded-full text-xs"
+            className="h-7 w-7 p-0 rounded-full text-xs bg-red-500 hover:bg-red-600 shadow-lg"
             onClick={onEdgeClick}
           >
             <Trash2 className="h-3 w-3" />
@@ -367,13 +379,31 @@ const FlowBuilder = () => {
     const newLayout = layout === 'horizontal' ? 'vertical' : 'horizontal';
     setLayout(newLayout);
     
-    // Update node positions based on layout
+    // Actually rearrange nodes based on layout
     setNodes((nds) =>
-      nds.map((node) => ({
-        ...node,
-        sourcePosition: newLayout === 'horizontal' ? Position.Right : Position.Bottom,
-        targetPosition: newLayout === 'horizontal' ? Position.Left : Position.Top,
-      }))
+      nds.map((node, index) => {
+        let newPosition;
+        if (newLayout === 'horizontal') {
+          // Arrange nodes horizontally
+          newPosition = {
+            x: index * 300 + 100,
+            y: 200 + (Math.random() - 0.5) * 100, // slight vertical variation
+          };
+        } else {
+          // Arrange nodes vertically
+          newPosition = {
+            x: 200 + (Math.random() - 0.5) * 100, // slight horizontal variation
+            y: index * 200 + 100,
+          };
+        }
+        
+        return {
+          ...node,
+          position: newPosition,
+          sourcePosition: newLayout === 'horizontal' ? Position.Right : Position.Bottom,
+          targetPosition: newLayout === 'horizontal' ? Position.Left : Position.Top,
+        };
+      })
     );
 
     setFlowData(prev => ({
@@ -387,7 +417,7 @@ const FlowBuilder = () => {
 
     toast({
       title: "Layout Changed",
-      description: `Flow layout changed to ${newLayout}.`,
+      description: `Flow layout changed to ${newLayout} with nodes repositioned.`,
     });
   };
 
@@ -444,14 +474,30 @@ const FlowBuilder = () => {
     try {
       console.log('Sending to backend:', finalFlowData);
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Simulate API response with processed data
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      const mockResponse = {
+        status: 'success',
+        message: 'Flow processed successfully',
+        processed_nodes: finalFlowData.nodes.length,
+        processed_edges: finalFlowData.edges.length,
+        execution_time: '0.25s',
+        flow_id: `flow_${Date.now()}`,
+        validation: {
+          errors: [],
+          warnings: nodes.filter(n => !n.data?.enabled).length > 0 ? ['Some nodes are disabled'] : []
+        }
+      };
+      
+      console.log('Backend Response:', mockResponse);
       
       toast({
-        title: "Backend Response",
-        description: "Flow data sent successfully! Check console for details.",
+        title: "Backend Response Received",
+        description: `Flow processed: ${mockResponse.processed_nodes} nodes, ${mockResponse.processed_edges} edges. Check console for details.`,
       });
     } catch (error) {
+      console.error('Backend Error:', error);
       toast({
         title: "Backend Error",
         description: "Failed to send data to backend.",
@@ -495,31 +541,31 @@ const FlowBuilder = () => {
   return (
     <div className="h-screen bg-white flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-blue-200 p-4 flex items-center justify-between">
+      <div className="bg-white border-b border-orange-200 p-4 flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <Grid3X3 className="h-6 w-6 text-blue-600" />
+          <Grid3X3 className="h-6 w-6 text-orange-600" />
           <h1 className="text-xl font-semibold text-gray-900">Automation Flow Builder</h1>
         </div>
         
         <div className="flex items-center space-x-2">
-          <Badge variant="outline" className="text-green-600 border-green-200">
+          <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
             {activeTriggers} Active Triggers
           </Badge>
-          <Badge variant="outline" className="text-blue-600 border-blue-200">
+          <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50">
             {activeActions} Active Actions
           </Badge>
-          <Badge variant="outline" className="text-purple-600 border-purple-200">
+          <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50">
             {activeRouters} Active Routers
           </Badge>
         </div>
       </div>
 
       {/* Toolbar */}
-      <div className="bg-blue-50 border-b border-blue-200 p-3 flex items-center justify-between">
+      <div className="bg-orange-50 border-b border-orange-200 p-3 flex items-center justify-between">
         <div className="flex items-center space-x-2">
           <Button
             onClick={() => setIsModalOpen(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            className="bg-orange-600 hover:bg-orange-700 text-white"
             size="sm"
           >
             <Plus className="h-4 w-4 mr-2" />
@@ -530,10 +576,10 @@ const FlowBuilder = () => {
             onClick={toggleLayout}
             variant="outline"
             size="sm"
-            className="border-blue-200 text-blue-600 hover:bg-blue-50"
+            className="border-orange-200 text-orange-600 hover:bg-orange-50"
           >
             <Layout className="h-4 w-4 mr-2" />
-            {layout === 'horizontal' ? 'Horizontal' : 'Vertical'}
+            {layout === 'horizontal' ? 'Switch to Vertical' : 'Switch to Horizontal'}
           </Button>
         </div>
 
@@ -568,15 +614,15 @@ const FlowBuilder = () => {
             }}
             variant="outline"
             size="sm"
-            className="border-blue-200 text-blue-600 hover:bg-blue-50"
+            className="border-orange-200 text-orange-600 hover:bg-orange-50"
           >
             <RotateCcw className="h-4 w-4 mr-2" />
-            Clear
+            Clear All
           </Button>
           
           <Button
             onClick={saveFlow}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            className="bg-orange-600 hover:bg-orange-700 text-white"
             size="sm"
           >
             <Save className="h-4 w-4 mr-2" />
@@ -598,14 +644,14 @@ const FlowBuilder = () => {
           edgeTypes={edgeTypes}
           connectionMode={ConnectionMode.Loose}
           fitView
-          className="bg-blue-50"
+          className="bg-orange-50"
         >
           <Controls 
-            className="bg-white border border-blue-200 rounded-lg shadow-sm"
+            className="bg-white border border-orange-200 rounded-lg shadow-sm"
             showInteractive={false}
           />
           <Background 
-            color="#e0f2fe" 
+            color="#fed7aa" 
             gap={20} 
             size={1}
             className="opacity-50"

@@ -13,11 +13,11 @@ interface TriggerNodeData {
   enabled?: boolean;
 }
 
-const TriggerNode = memo(({ data, sourcePosition, id }: NodeProps<TriggerNodeData>) => {
-  const nodeData = data || {};
-  const category = typeof nodeData.category === 'string' ? nodeData.category : 'default';
-  const label = typeof nodeData.label === 'string' ? nodeData.label : 'Trigger';
-  const description = typeof nodeData.description === 'string' ? nodeData.description : '';
+const TriggerNode = memo(({ data, sourcePosition, id }: NodeProps) => {
+  const nodeData = (data as TriggerNodeData) || {};
+  const category = nodeData.category || 'default';
+  const label = nodeData.label || 'Trigger';
+  const description = nodeData.description || '';
   const enabled = nodeData.enabled !== false;
 
   const getIcon = (category: string) => {
