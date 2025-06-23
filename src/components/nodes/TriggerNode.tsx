@@ -5,7 +5,18 @@ import { Zap, Mail, Clock, MousePointer } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
-const TriggerNode = memo(({ data, sourcePosition }: NodeProps) => {
+interface TriggerNodeData {
+  label?: string;
+  category?: string;
+  description?: string;
+}
+
+const TriggerNode = memo(({ data, sourcePosition }: NodeProps<TriggerNodeData>) => {
+  const nodeData = data || {};
+  const category = typeof nodeData.category === 'string' ? nodeData.category : 'default';
+  const label = typeof nodeData.label === 'string' ? nodeData.label : 'Trigger';
+  const description = typeof nodeData.description === 'string' ? nodeData.description : '';
+
   const getIcon = (category: string) => {
     switch (category) {
       case 'email':
@@ -37,21 +48,21 @@ const TriggerNode = memo(({ data, sourcePosition }: NodeProps) => {
       <div className="p-4">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center space-x-2 text-blue-700">
-            {getIcon(data.category)}
+            {getIcon(category)}
             <span className="font-medium text-sm">TRIGGER</span>
           </div>
-          <Badge className={`text-xs ${getCategoryColor(data.category)}`}>
-            {data.category}
+          <Badge className={`text-xs ${getCategoryColor(category)}`}>
+            {category}
           </Badge>
         </div>
         
         <div className="text-gray-900 font-medium text-sm mb-1">
-          {data.label}
+          {label}
         </div>
         
-        {data.description && (
+        {description && (
           <div className="text-gray-600 text-xs">
-            {data.description}
+            {description}
           </div>
         )}
       </div>

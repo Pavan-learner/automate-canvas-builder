@@ -5,7 +5,16 @@ import { GitBranch } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
-const RouterNode = memo(({ data, sourcePosition, targetPosition }: NodeProps) => {
+interface RouterNodeData {
+  label?: string;
+  routeType?: string;
+}
+
+const RouterNode = memo(({ data, sourcePosition, targetPosition }: NodeProps<RouterNodeData>) => {
+  const nodeData = data || {};
+  const label = typeof nodeData.label === 'string' ? nodeData.label : 'Route Logic';
+  const routeType = typeof nodeData.routeType === 'string' ? nodeData.routeType : 'conditional';
+
   return (
     <Card className="min-w-[180px] bg-gradient-to-br from-blue-100 to-blue-200 border-2 border-blue-400 shadow-md hover:shadow-lg transition-shadow transform rotate-45">
       <div className="p-4 transform -rotate-45">
@@ -18,11 +27,11 @@ const RouterNode = memo(({ data, sourcePosition, targetPosition }: NodeProps) =>
         
         <div className="text-center">
           <div className="text-gray-900 font-medium text-sm mb-1">
-            {data.label || 'Route Logic'}
+            {label}
           </div>
           
           <Badge className="text-xs bg-blue-300 text-blue-800 border-blue-400">
-            {data.routeType || 'conditional'}
+            {routeType}
           </Badge>
         </div>
       </div>

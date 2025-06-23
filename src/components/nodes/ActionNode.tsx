@@ -5,7 +5,18 @@ import { Play, Mail, MessageSquare, Database, Webhook } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
-const ActionNode = memo(({ data, sourcePosition, targetPosition }: NodeProps) => {
+interface ActionNodeData {
+  label?: string;
+  category?: string;
+  description?: string;
+}
+
+const ActionNode = memo(({ data, sourcePosition, targetPosition }: NodeProps<ActionNodeData>) => {
+  const nodeData = data || {};
+  const category = typeof nodeData.category === 'string' ? nodeData.category : 'default';
+  const label = typeof nodeData.label === 'string' ? nodeData.label : 'Action';
+  const description = typeof nodeData.description === 'string' ? nodeData.description : '';
+
   const getIcon = (category: string) => {
     switch (category) {
       case 'email':
@@ -26,21 +37,21 @@ const ActionNode = memo(({ data, sourcePosition, targetPosition }: NodeProps) =>
       <div className="p-4">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center space-x-2 text-blue-700">
-            {getIcon(data.category)}
+            {getIcon(category)}
             <span className="font-medium text-sm">ACTION</span>
           </div>
           <Badge className="text-xs bg-blue-200 text-blue-700 border-blue-300">
-            {data.category}
+            {category}
           </Badge>
         </div>
         
         <div className="text-gray-900 font-medium text-sm mb-1">
-          {data.label}
+          {label}
         </div>
         
-        {data.description && (
+        {description && (
           <div className="text-gray-600 text-xs">
-            {data.description}
+            {description}
           </div>
         )}
       </div>
